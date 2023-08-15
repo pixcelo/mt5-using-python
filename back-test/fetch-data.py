@@ -2,6 +2,7 @@ import MetaTrader5 as mt5
 import pandas as pd
 from datetime import datetime, timezone
 import pytz
+import os
 
 try:
     # MT5に接続
@@ -9,22 +10,13 @@ try:
         print("initialize() failed, error code =", mt5.last_error())
         quit()
 
-    # 通貨ペアと時間枠を指定
+    # タイムゾーンをUTCに設定する
     symbol = "USDJPY"
-    timeframe = mt5.TIMEFRAME_M1
-
-    # タイムゾーンをUTCに設定する
-    # utc_from = datetime(2023, 1, 1, tzinfo=timezone.utc)
-    # utc_to = datetime(2020, 5, 1, 23, 59, tzinfo=timezone.utc)
-    # rates = mt5.copy_rates_range(symbol, timeframe, utc_from, utc_to)  
-
-    # タイムゾーンをUTCに設定する
+    timeframe = mt5.TIMEFRAME_M5
     timezone = pytz.timezone("Etc/UTC")
-    # create 'datetime' objects in UTC time zone to avoid the implementation of a local time zone offset
-    utc_from = datetime(2023, 1, 10, tzinfo=timezone)
+    utc_from = datetime(2022, 8, 1, tzinfo=timezone)
     utc_to = datetime(2023, 8, 1, hour = 13, tzinfo=timezone)
-    # 2020.01.10 00:00-2020.01.11 13:00 UTCでUSDJPY M5からバーを取得する
-    rates = mt5.copy_rates_range("USDJPY", mt5.TIMEFRAME_M5, utc_from, utc_to)
+    rates = mt5.copy_rates_range(symbol, timeframe, utc_from, utc_to)
 
     if rates is None:
         raise Exception("No data received, error code =", mt5.last_error())
@@ -40,7 +32,13 @@ try:
     df['time'] = pd.to_datetime(df['time'], unit='s')
 
     # CSVファイルとして保存
-    csv_file = f'{symbol}_{timeframe}.csv'
+    csv_folder = 'csv'
+    if not os.path.exists(csv_folder):
+        os.makedirs(csv_folder)
+
+    from_date_str = utc_from.strftime("%Y%m%d")
+    to_date_str = utc_to.strftime("%Y%m%d")
+    csv_file = os.path.join(csv_folder, f'{symbol}_{timeframe}_{from_date_str}_to_{to_date_str}.csv')
     df.to_csv(csv_file, index=False)
 
     print(f"{csv_file} has been saved.")

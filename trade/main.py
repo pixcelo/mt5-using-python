@@ -27,12 +27,22 @@ def main_process(symbol, timeframe, lot_size=10000, polling_interval=60):
             position = trading.get_position()
             signal = trading.trade_conditions(df, len(df)-1, portfolio)
 
+            # order parameters
+            order_type = mt5.ORDER_TYPE_BUY
+            volume = 1.0
+            point = mt5.symbol_info(symbol).point
+            price = mt5.symbol_info_tick(symbol).ask
+            stop_loss = price - 100 * point
+            take_profit = price + 100 * point
+
             if signal == 'entry_long' and position is None:
-                trading.place_order(symbol, lot_size, 'buy')
+                order_type = mt5.ORDER_TYPE_BUY
+                trading.place_order(symbol, order_type, volume, price, stop_loss, take_profit)
                 portfolio['position'] = 'long'
                 portfolio['entry_price'] = df.loc[len(df)-1, 'close']
             elif signal == 'exit_long' and portfolio['position'] == 'long':
-                trading.place_order(symbol, lot_size, 'sell')
+                order_type = mt5.ORDER_TYPE_SELL
+                trading.close_position(position["id"])
                 portfolio['position'] = None
                 portfolio['entry_price'] = None
 

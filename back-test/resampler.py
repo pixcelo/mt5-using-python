@@ -24,11 +24,11 @@ class ResampleData:
         return df_resampled
     
     def fill_missing_values(self, df_merged):
-        df_merged[f"{self.prefix}open"].fillna(method='ffill', inplace=True)
-        df_merged[f"{self.prefix}high"].fillna(method='ffill', inplace=True)
-        df_merged[f"{self.prefix}low"].fillna(method='ffill', inplace=True)
-        df_merged[f"{self.prefix}close"].fillna(method='ffill', inplace=True)
-        df_merged[f"{self.prefix}tick_volume"].fillna(method='ffill', inplace=True)
+        df_merged[f"{self.prefix}open"].ffill(inplace=True)
+        df_merged[f"{self.prefix}high"].ffill(inplace=True)
+        df_merged[f"{self.prefix}low"].ffill(inplace=True)
+        df_merged[f"{self.prefix}close"].ffill(inplace=True)
+        df_merged[f"{self.prefix}tick_volume"].ffill(inplace=True)
         return df_merged
     
     def merge_data(self):

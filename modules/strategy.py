@@ -121,13 +121,12 @@ class TradingStrategy:
         return condition
 
 
-    def trade_conditions_func(self, df, i, portfolio, aim="longEntry"):
-        lot_size = 10000
+    def trade_conditions_func(self, df, i, portfolio, lot_size=10000, aim="longEntry"):
         take_profit_pips = 0.0010
-        close = df.loc[i, 'close']
+        close = df.iloc[i]['close']
         
         if 'spread' in df.columns:
-            spread = df.loc[i, 'spread']
+            spread = df.iloc[i]['spread']
         else:
             spread = 5
 
@@ -139,7 +138,7 @@ class TradingStrategy:
                 return 'exit_long'
 
 
-        trendline = self.calculate_trend_line(df, aim, 100)
+        trendline = self.calculate_trend_line(df, aim)
         if self.check_entry_condition(df, trendline, i, aim):
             portfolio['entry_price'] = close
             if aim == "longEntry":

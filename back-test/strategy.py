@@ -1,98 +1,155 @@
 import pandas as pd
-from ta.trend import EMAIndicator
 from scipy.signal import find_peaks
 import numpy as np
+from datetime import datetime
+import logging
 
 class TradingStrategy:
-    def __init__(self, lot_size=10000):
-        self.lot_size = lot_size
+    """
+    トレードロジック
+    使用データ: 1分足と5分足データを取得（1分足から5分足をリサンプリング）
+    1. ５分足のチャート参照
+        連続する安値が上昇しているポイントを特定。（極大値・極小値のピーク）
+    2. トレンドライン(1)の作成
+        上昇する安値のポイントを結ぶ直線を描きます。
+        この直線を「トレンドライン(1)」と呼びます。
+        ※トレンドラインの定義：（下降トレンドなら極大値の切り下がり、上昇トレンドなら極小値のピークの切り上がり）を結んだもの
+        トレンドラインの延長線上に、将来クロスするポイントを見つける
+    3. 最新の高値の特定
+        ５分足のチャートでの最新の高値を特定します。
+    4. 水平線(2)の作成
+        最新の高値から水平に直線を引きます。
+        この直線を「水平線(2)」と呼びます。
+    5. 三角形の形状の作成
+        「トレンドライン(1)」と「水平線(2)」の交点を基に、三角形の形状を形成します。
+    6. １分足のチャート監視
+        価格が「トレンドライン(1)」に触れた後、価格が反転する動き（トレンドラインより下に行った、もしくは触れたあとの上昇を指す）を示した場合、そのポイントで取引を開始（エントリー）します。
+    （エントリー条件は、１分足でローソク足が一度、トレンドライン１に触れたあと、再度、１分足の終値がトレンドラインの上で確定したときの、次の始値です）
+    7. 利確
+        10pipに設定 TODO:将来的にトレールストップを実装する
+    8. ストップロス
+        エントリーポイントの直近の安値（極小値）よりも少し下の位置に、損切りのためのストップロス注文を設定
+        上昇トレンドラインの起点となっている安値（極小値）のうち、最も近い極小値を直近安値と定義
+    """
+    def __init__(self):
+        self.last_pivots_high = []
+        self.last_pivots_low = []        
 
     def prepare_data(self, df):
-        # Calculate moving averages
-        df["EMA50"] = EMAIndicator(df["5min_close"], window=50, fillna=False).ema_indicator()
+        df["EMA50"] = df["5min_close"].ewm(span=50, adjust=False).mean()
         return df
     
-    def trend_direction(self, df, i):
-        if i == 0:  # Skip the first row
-            return None
-        # Calculate the trend direction based on the angle of the EMA
-        if i < 1:
-            return None
-        angle = np.arctan((df.loc[i, "EMA50"] - df.loc[i-1, "EMA50"]) / 1) * (180 / np.pi)
-        
-        # Check trend direction
-        if angle > 0:
-            return "up"
-        elif angle < 0:
-            return "down"
+    def calculate_pl(self, symbol, position, lot_size, entry_rate, exit_rate, spread, usd_jpy_rate=146):
+        if position == "long":
+            entry_rate_with_spread = entry_rate + spread
+            exit_rate_with_spread = exit_rate
+        elif position == "short":
+            entry_rate_with_spread = entry_rate
+            exit_rate_with_spread = exit_rate + spread
         else:
-            return None
+            raise ValueError("Invalid position type. Choose 'long' or 'short'.")
         
-    def is_strong_trend(self, angle, threshold=1):
-        # Determine if it's a strong trend based on the angle
-        return abs(angle) > threshold
+        value_difference = entry_rate_with_spread - exit_rate_with_spread
+        
+        # For pairs like EURUSD
+        if symbol[-3:] != "JPY":
+            return lot_size * value_difference * usd_jpy_rate
+        
+        # For pairs like USDJPY
+        elif symbol[:3] == "USD":
+            return lot_size * value_difference
+        
+        # For cross currency pairs like EURJPY
+        else:
+            return lot_size * value_difference * entry_rate_with_spread
+
+    def calculate_trend_line(self, df, aim="longEntry", periods=100, num=2):
+        # Use the last N periods for the calculation
+        df_last_n = df.tail(periods)
+        prices = df_last_n['5min_close'].values
+
+        # Find pivots for highs and lows
+        pivots_high, _ = find_peaks(prices, distance=num)
+        pivots_low, _ = find_peaks(-prices, distance=num)
+
+        # Check if pivots have changed
+        if len(pivots_high) != len(self.last_pivots_high) or np.any(pivots_high != self.last_pivots_high):
+            self.last_pivots_high = pivots_high
     
-    def calculate_resistance_zone(self, df, start, end, buffer=1, rebound_threshold=2):
-        data = df['5min_close'].iloc[start:end+1].values
-        maxima_indices, _ = find_peaks(data)
-        maxima_values = data[maxima_indices]
-        upper_bounds = maxima_values + buffer
-        lower_bounds = maxima_values - buffer
-        rebound_counts = np.sum((lower_bounds[:, np.newaxis] < data) & (data < upper_bounds[:, np.newaxis]), axis=1)
-        valid_indices = np.where(rebound_counts >= rebound_threshold)[0]
-        valid_lower_bounds = lower_bounds[valid_indices]
-        valid_upper_bounds = upper_bounds[valid_indices]
-        resistance_zones = list(zip(valid_lower_bounds, valid_upper_bounds))
-        return resistance_zones
+        if len(pivots_low) != len(self.last_pivots_low) or np.any(pivots_low != self.last_pivots_low):
+            self.last_pivots_low = pivots_low
 
-    def is_price_in_resistance(self, resistance_zones, price):
-        for zone in resistance_zones:
-            if zone[0] <= price <= zone[1]:
-                return True
-        return False
+        # For aim="longEntry", ensure that both the highs and lows are in an uptrend
+        if aim == "longEntry":
+            if len(pivots_high) < 2 or pivots_high[-1] <= pivots_high[-2]:
+                return None
+            if len(pivots_low) < 2 or pivots_low[-1] <= pivots_low[-2]:
+                return None
+            pivots = pivots_low
 
-    def is_higher_lows(self, df, i):
-        if i < 2:
-            return False
-        return df.loc[i, "5min_close"] > df.loc[i-1, "5min_close"] and df.loc[i-1, "5min_close"] > df.loc[i-2, "5min_close"]
+        # For aim="shortEntry", ensure that both the highs and lows are in a downtrend
+        elif aim == "shortEntry":
+            if len(pivots_high) < 2 or pivots_high[-1] >= pivots_high[-2]:
+                return None
+            if len(pivots_low) < 2 or pivots_low[-1] >= pivots_low[-2]:
+                return None
+            pivots = pivots_high
 
-    # trade logic
-    def trade_conditions_func(self, df, i, portfolio):
-        if i == 0:  # Skip the first row
+        # If not enough pivots, return None
+        if len(pivots) < num:
             return None
 
+        # Calculate trend line using least squares method
+        y = prices[pivots]
+        slope, intercept = np.polyfit(pivots, y, 1)
+        trendline = slope * np.arange(len(df_last_n)) + intercept
+
+        # Extend the trendline array to match the original dataframe
+        trendline_full = np.full(len(df), np.nan)
+        trendline_full[-len(trendline):] = trendline
+
+        return trendline_full
+
+
+    def check_entry_condition(self, data_1min, trendline, i, price_point):
+        trendline_value = trendline[-1]
+        # print(f'trendline_value {trendline_value}')
+        if price_point == "low":
+            condition = data_1min['close'].iloc[i-1] <= trendline_value and data_1min['close'].iloc[i] > trendline_value
+        else:
+            condition = data_1min['close'].iloc[i-1] >= trendline_value and data_1min['close'].iloc[i] < trendline_value
+        return condition
+
+
+    def trade_conditions_func(self, df, i, portfolio, aim="longEntry"):
+        lot_size = 10000
+        take_profit_pips = 0.0010
         close = df.loc[i, 'close']
-        close5 = df.loc[i, '5min_close']
-        spread = df.loc[i, 'spread']
-
-        resistance_zones = self.calculate_resistance_zone(df, 0, i)
-        in_resistance = self.is_price_in_resistance(resistance_zones, close5)
-        higher_lows = self.is_higher_lows(df, i)
-
-        # Spread conversion to currency unit (1 pip = 0.01 yen)
-        spread_cost = spread * 0.01 * self.lot_size
-
-        # Profit and loss thresholds
-        TAKE_PROFIT = 0.005 * portfolio['entry_price'] if portfolio['entry_price'] else 0
-        STOP_LOSS = -0.01 * portfolio['entry_price'] if portfolio['entry_price'] else 0
+        
+        if 'spread' in df.columns:
+            spread = df.loc[i, 'spread']
+        else:
+            spread = 5
 
         if portfolio['position'] == 'long':
-            profit = (close - portfolio['entry_price']) - spread_cost
-            if profit > TAKE_PROFIT or profit < STOP_LOSS:
-                return 'exit_long'
-              
-        # elif portfolio['position'] == 'short':
-        #     profit = (portfolio['entry_price'] - close) - spread_cost
-        #     if profit > TAKE_PROFIT or profit < STOP_LOSS:
-        #         return 'exit_short'
 
-        # Entry conditions
-        elif in_resistance and higher_lows:
-            return 'entry_long'
-          
-        # No entry short condition defined in the requirements, so I am omitting it for now.
-        #elif (conditions for short):
-        #    return 'entry_short'
-        
+            if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
+                portfolio['stop_loss'] = None
+                portfolio['profit'] = self.calculate_pl("EURUSD", "long", lot_size, portfolio['entry_price'], close, spread)
+                return 'exit_long'
+
+
+        trendline = self.calculate_trend_line(df, aim, 100)
+        if self.check_entry_condition(df, trendline, i, aim):
+            portfolio['entry_price'] = close
+            if aim == "longEntry":
+                portfolio['take_profit'] = portfolio['entry_price'] + take_profit_pips
+                portfolio['stop_loss'] = self.last_pivots_low[-1] - 0.0001
+            else:
+                portfolio['take_profit'] = portfolio['entry_price'] - take_profit_pips
+                portfolio['stop_loss'] = self.last_pivots_high[-1] + 0.0001
+            return 'entry_long' if aim == "longEntry" else 'entry_short'
         else:
             return None
+
+

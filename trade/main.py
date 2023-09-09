@@ -27,20 +27,19 @@ def main_process(symbol, timeframe, lot_size=10000, polling_interval=60):
 
             position = trading.get_position()
 
-            lot = 0.1
-            signal = trading.trade_conditions(df, len(df)-1, portfolio, lot, "longEntry")
+            lot = 0.1 # 1ロット=100,000通貨　(最小取引数量 10,000通貨)
+            signal = trading.trade_conditions(symbol, df, len(df)-1, portfolio, lot, "longEntry")
 
             # order parameters
             order_type = mt5.ORDER_TYPE_BUY
-            volume = lot
             point = mt5.symbol_info(symbol).point
             price = mt5.symbol_info_tick(symbol).ask
             stop_loss = price - 100 * point
             take_profit = price + 100 * point
-            trading.place_order(symbol, order_type, volume, price, stop_loss, take_profit)
+            trading.place_order(symbol, order_type, lot, price, stop_loss, take_profit)
             if signal == 'entry_long' and position is None:
                 order_type = mt5.ORDER_TYPE_BUY
-                trading.place_order(symbol, order_type, volume, price, stop_loss, take_profit)
+                trading.place_order(symbol, order_type, lot, price, stop_loss, take_profit)
                 portfolio['position'] = 'long'
             elif signal == 'exit_long' and portfolio['position'] == 'long':
                 order_type = mt5.ORDER_TYPE_SELL

@@ -136,5 +136,5 @@ class Trading:
 
         return None
     
-    def trade_conditions(self, df, i, portfolio, lot_size, aim="longEntry"):
-        return self.strategy.trade_conditions_func(df, i, portfolio, lot_size, aim)
+    def trade_conditions(self, symbol, df, i, portfolio, lot_size, aim="longEntry"):
+        return self.strategy.trade_conditions_func(symbol, df, i, portfolio, lot_size, aim)

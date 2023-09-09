@@ -11,8 +11,8 @@ try:
         quit()
 
     # タイムゾーンをUTCに設定する
-    symbol = "USDJPY"
-    timeframe = mt5.TIMEFRAME_M5
+    symbol = "EURUSD"
+    timeframe = mt5.TIMEFRAME_H1c
     timezone = pytz.timezone("Etc/UTC")
     utc_from = datetime(2022, 8, 1, tzinfo=timezone)
     utc_to = datetime(2023, 8, 1, hour = 13, tzinfo=timezone)
@@ -22,7 +22,7 @@ try:
         raise Exception("No data received, error code =", mt5.last_error())
 
     if len(rates) == 1:
-        rates = [rates[0]]  
+        rates = [rates[0]]
 
     # DataFrameに変換
     df = pd.DataFrame(rates,

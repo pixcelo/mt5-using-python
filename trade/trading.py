@@ -1,5 +1,7 @@
-from ta.momentum import RSIIndicator
-from ta.volatility import AverageTrueRange
+import sys
+sys.path.append('d:\\dev\\mt5-python')
+
+from modules import ResampleData, TradingStrategy
 import MetaTrader5 as mt5
 import numpy as np
 
@@ -8,6 +10,21 @@ class Trading:
         self.symbol = symbol
         self.lot_size = lot_size
         self.slippage = slippage
+        self.strategy = TradingStrategy()
+
+        self.portfolio = {
+            'position': None,  # 'long' or 'short'
+            'entry_price': None,
+            'take_profit': None,
+            'stop_loss': None,
+            'profit': 0
+        }
+    
+    def load_data(self, df):
+        resampler_df = ResampleData(df)
+        df = resampler_df.merge_data()
+        df = self.strategy.prepare_data(df)
+        return df
 
     def place_order(self, symbol, order_type, volume, price, stop_loss, take_profit):
         try:
@@ -119,51 +136,5 @@ class Trading:
 
         return None
     
-    def prepare_data(self, df):
-        # Calculate moving averages
-        df['SMA20'] = df['close'].rolling(window=20).mean()
-        df['short_ma'] = df['close'].rolling(window=50).mean()
-        df['long_ma'] = df['close'].rolling(window=200).mean()
-
-        df.loc[df['short_ma'] > df['long_ma'], 'trend'] = 1
-        df.loc[df['short_ma'] < df['long_ma'], 'trend'] = 0
-
-        rsi_indicator = RSIIndicator(close=df['close'])
-        df['RSI'] = rsi_indicator.rsi()
-        average_true_range = AverageTrueRange(
-            high=df['high'],
-            low=df['low'],
-            close=df['close'],
-            window=14
-        )
-        df['ATR'] = average_true_range.average_true_range()
-
-        return df
-
-    def trade_conditions(self, df, i, portfolio):
-        atr = df.loc[i, 'ATR']
-        close = df.loc[i, 'close']
-        ma = df.loc[i, 'SMA20']
-        spread = df.loc[i, 'spread'] 
-
-        prev_close = df.loc[i - 1, 'close'] if i > 0 else None
-        prev_ma = df.loc[i - 1, 'SMA20'] if i > 0 else None
-
-        # スプレッドを通貨単位に変換
-        spread_cost = spread * 0.01 * self.lot_size  # 0.2銭なら20円
-
-        # 利確と損切りの閾値
-        TAKE_PROFIT = atr * 1
-        STOP_LOSS = atr * -1
-
-        if portfolio['position'] == 'long':
-            profit = (close - portfolio['entry_price']) - spread_cost
-            if profit > TAKE_PROFIT or profit < STOP_LOSS:
-                return 'exit_long'
-        elif prev_close is not None and prev_ma is not None \
-            and prev_close < prev_ma and close > ma:
-            return 'entry_long'
-        else:
-            return None
-
-
+    def trade_conditions(self, df, i, portfolio, lot_size, aim="longEntry"):
+        return self.strategy.trade_conditions_func(df, i, portfolio, lot_size, aim)

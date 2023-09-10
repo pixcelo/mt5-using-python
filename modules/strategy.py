@@ -120,9 +120,9 @@ class TradingStrategy:
         trendline_value = trendline[-1]
         # print(f'trendline_value: {trendline_value}, i: {i}, aim: {aim}')
         if aim == "longEntry":
-            condition = df['close'].iloc[i-1] <= trendline_value and df['close'].iloc[i] > trendline_value
+            condition = df['low'].iloc[i-1] <= trendline_value and df['close'].iloc[i] > trendline_value
         else:
-            condition = df['close'].iloc[i-1] >= trendline_value and df['close'].iloc[i] < trendline_value
+            condition = df['high'].iloc[i-1] >= trendline_value and df['close'].iloc[i] < trendline_value
         return condition
 
     def trade_conditions_func(self, symbol, df, i, portfolio, lot_size=0.1):

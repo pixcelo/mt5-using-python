@@ -1,7 +1,7 @@
 from scipy.signal import find_peaks
 import numpy as np
 from datetime import datetime
-import logging
+import trendln
 
 class TradingStrategy:
     """
@@ -71,58 +71,41 @@ class TradingStrategy:
         prices_high = df_last_n['5min_high'].values
         prices_low = df_last_n['5min_low'].values
 
-        # Find pivots for highs and lows
-        pivots_high, _ = find_peaks(prices_high, distance=num)
-        pivots_low, _ = find_peaks(-prices_low, distance=num)
+        # Calculate support and resistance trendlines using trendln
+        (minimaIdxs, pmin, mintrend, minwindows), (maximaIdxs, pmax, maxtrend, maxwindows) = trendln.calc_support_resistance((prices_low, prices_high), accuracy=8)
 
-        # Check if pivots have changed
-        if len(pivots_high) != len(self.last_pivots_high) or np.any(pivots_high != self.last_pivots_high):
-            self.last_pivots_high = pivots_high
-    
-        if len(pivots_low) != len(self.last_pivots_low) or np.any(pivots_low != self.last_pivots_low):
-            self.last_pivots_low = pivots_low
+        # Update the last pivots
+        self.last_pivots_high = maximaIdxs
+        self.last_pivots_low = minimaIdxs
 
         # For aim="longEntry", ensure that both the highs and lows are in an uptrend
         if aim == "longEntry":
-            if len(pivots_high) < 2 or prices_high[pivots_high[-1]] <= prices_high[pivots_high[-2]]:
-                return None
-            if len(pivots_low) < 2 or prices_low[pivots_low[-1]] <= prices_low[pivots_low[-2]]:
-                return None
-            prices = prices_low
-            pivots = pivots_low
+            if prices_high[maximaIdxs[-1]] <= prices_high[maximaIdxs[-2]] or prices_low[minimaIdxs[-1]] <= prices_low[minimaIdxs[-2]]:
+                return False, None
+            return True, mintrend
 
         # For aim="shortEntry", ensure that both the highs and lows are in a downtrend
         elif aim == "shortEntry":
-            if len(pivots_high) < 2 or prices_high[pivots_high[-1]] >= prices_high[pivots_high[-2]]:
-                return None
-            if len(pivots_low) < 2 or prices_low[pivots_low[-1]] >= prices_low[pivots_low[-2]]:
-                return None
-            prices = prices_high
-            pivots = pivots_high
-
-        # If not enough pivots, return None
-        if len(pivots) < num:
-            return None
-
-        # Calculate trend line using least squares method
-        y = prices[pivots]
-        slope, intercept = np.polyfit(pivots, y, 1)
-        trendline = slope * np.arange(len(df_last_n)) + intercept
-
-        return trendline
+            if prices_high[maximaIdxs[-1]] >= prices_high[maximaIdxs[-2]] or prices_low[minimaIdxs[-1]] >= prices_low[minimaIdxs[-2]]:
+                return False, None
+            return True, maxtrend
 
     def check_entry_condition(self, df, i, aim):
-        trendline = self.calculate_trend_line(df, aim)
-
-        if trendline is None:
+        success, result  = self.calculate_trend_line(df, aim)
+        
+        if success == False:
             return False
         
-        trendline_value = trendline[-1]
-        # print(f'trendline_value: {trendline_value}, i: {i}, aim: {aim}')
+        trendline = result[0]
+        slope = trendline[1][0]
+        intercept = trendline[1][1]
+        trendline_price = slope * i + intercept
+        
+        # calculate_trend_line(f'trendline_price: {trendline_price}, i: {i}, aim: {aim}')
         if aim == "longEntry":
-            condition = df['low'].iloc[i-1] <= trendline_value and df['close'].iloc[i] > trendline_value
+            condition = df['low'].iloc[i-1] <= trendline_price and df['close'].iloc[i] > trendline_price
         else:
-            condition = df['high'].iloc[i-1] >= trendline_value and df['close'].iloc[i] < trendline_value
+            condition = df['high'].iloc[i-1] >= trendline_price and df['close'].iloc[i] < trendline_price
         return condition
 
     def trade_conditions_func(self, symbol, df, i, portfolio, lot_size=0.1):

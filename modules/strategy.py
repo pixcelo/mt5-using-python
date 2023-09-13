@@ -55,8 +55,8 @@ class TradingStrategy:
         self.risk_reward_ratio = 2.0
         self.stop_loss_point = 0.0001
         self.period = 300
-        self.distance = 60
-        self.pivot_count = 3
+        self.distance = 100
+        self.pivot_count = 2
 
     def prepare_data(self, df):
         #df["EMA50"] = df["close"].ewm(span=50, adjust=False).mean()
@@ -66,25 +66,25 @@ class TradingStrategy:
         if position == "long":
             entry_rate_with_spread = entry_rate + spread
             exit_rate_with_spread = exit_rate
+            diff = exit_rate - entry_rate_with_spread
         elif position == "short":
             entry_rate_with_spread = entry_rate
             exit_rate_with_spread = exit_rate + spread
+            diff = entry_rate - exit_rate_with_spread
         else:
             raise ValueError("Invalid position type. Choose 'long' or 'short'.")
         
-        value_difference = entry_rate_with_spread - exit_rate_with_spread
-        
         # For pairs like EURUSD
         if symbol[-3:] != "JPY":
-            return lot_size * value_difference * usd_jpy_rate
+            return lot_size * diff * usd_jpy_rate
         
         # For pairs like USDJPY
         elif symbol[:3] == "USD":
-            return lot_size * value_difference
+            return lot_size * diff
         
         # For cross currency pairs like EURJPY
         else:
-            return lot_size * value_difference * entry_rate_with_spread
+            return lot_size * diff * entry_rate_with_spread
 
     def calculate_trend_line(self, df, aim="longEntry"):
         # Use the last N periods for the calculation

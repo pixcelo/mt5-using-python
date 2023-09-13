@@ -46,7 +46,7 @@ class TradingStrategy:
         pivot_count: トレンドラインの計算に使う直近極値の数
         period: トレンドラインの計算に使うデータ期間
     """
-    def __init__(self, allow_short=False):
+    def __init__(self, allow_short=False, params=None):
         self.last_max_value = 0
         self.last_min_value = 0
         self.allow_short = allow_short
@@ -54,9 +54,16 @@ class TradingStrategy:
         # Setting values
         self.risk_reward_ratio = 2.0
         self.stop_loss_point = 0.0001
-        self.period = 300
-        self.distance = 100
+        self.period = 200
+        self.distance = 5
         self.pivot_count = 2
+
+        if params:
+            self.risk_reward_ratio = params['risk_reward_ratio']
+            self.stop_loss_point = params['stop_loss_point']
+            self.period = params['period']
+            self.distance = params['distance']
+            self.pivot_count = params['pivot_count']
 
     def prepare_data(self, df):
         #df["EMA50"] = df["close"].ewm(span=50, adjust=False).mean()
@@ -168,6 +175,7 @@ class TradingStrategy:
             stop_loss = self.last_min_value - self.stop_loss_point
             stop_loss_distance = close - stop_loss
             portfolio['take_profit'] = close + (stop_loss_distance * self.risk_reward_ratio)
+            portfolio['take_profit'] = close + 0.0002
             portfolio['stop_loss'] = stop_loss
             portfolio['entry_price'] = close
             return 'entry_long' 
@@ -177,6 +185,7 @@ class TradingStrategy:
                 stop_loss = self.last_max_value + self.stop_loss_point
                 stop_loss_distance = stop_loss - close
                 portfolio['take_profit'] = close - (stop_loss_distance * self.risk_reward_ratio)
+                portfolio['take_profit'] = close - 0.0002
                 portfolio['stop_loss'] = stop_loss
                 portfolio['entry_price'] = close
                 return 'entry_short'

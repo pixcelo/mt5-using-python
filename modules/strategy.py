@@ -61,7 +61,7 @@ class TradingStrategy:
         
         # Setting values
         self.risk_reward_ratio = 2.0
-        self.take_profit_pips = 0.0030  # 10 pips
+        self.take_profit_pips = 0.0010  # 10 pips
         self.stop_loss_pips = 0.0010   # 10 pips
         self.period = 200
         self.distance = 5
@@ -71,46 +71,9 @@ class TradingStrategy:
         self.entry_horizontal_distance = 0.0005  # 5 pips
 
         if params:
-            self.risk_reward_ratio = params['risk_reward_ratio']
-            self.take_profit_pips = params['take_profit_pips']
-            self.stop_loss_pips = params['stop_loss_pips']
-            self.period = params['period']
-            self.distance = params['distance']
-            self.pivot_count = params['pivot_count']
-            self.horizontal_distance = params['horizontal_distance']
-            self.horizontal_threshold = params['horizontal_threshold']
-            self.entry_horizontal_distance = params['entry_horizontal_distance']
-    
-    def calculate_pl(self, symbol, position, lot_size, entry_rate, exit_rate, spread_points, usd_jpy_rate=146):
-        # Convert spread from points to pips
-        if symbol[-3:] == "JPY" or symbol[:3] == "JPY":
-            spread_pips = spread_points / 100  # e.g., for pairs like USDJPY
-        else:
-            spread_pips = spread_points / 10000  # e.g., for pairs like EURUSD (5=>0.0005)
+            for key, value in params.items():
+                setattr(self, key, value)
 
-        if position == "long":
-            entry_rate_with_spread = entry_rate + spread_pips
-            exit_rate_with_spread = exit_rate
-            diff = exit_rate - entry_rate_with_spread
-        elif position == "short":
-            entry_rate_with_spread = entry_rate
-            exit_rate_with_spread = exit_rate + spread_pips
-            diff = entry_rate - exit_rate_with_spread
-        else:
-            raise ValueError("Invalid position type. Choose 'long' or 'short'.")
-        
-        # For pairs like EURUSD
-        if symbol[-3:] != "JPY":
-            return lot_size * diff * usd_jpy_rate
-        
-        # For pairs like USDJPY
-        elif symbol[:3] == "USD":
-            return lot_size * diff
-        
-        # For cross currency pairs like EURJPY
-        else:
-            return lot_size * diff * entry_rate_with_spread
-        
     def detect_horizontal_lines(self, df):
         try:
             prices_high = df['high'].values
@@ -207,13 +170,14 @@ class TradingStrategy:
 
         return False
 
-    def trade_conditions_func(self, symbol, df, i, portfolio, lot_size=0.1):
+    def trade_conditions_func(self, df, i, portfolio):
         close = df.iloc[i]['close']
         
         if 'spread' in df.columns:
-            spread = df.iloc[i]['spread']
+            # Convert points to pips
+            spread = df.iloc[i]['spread'] / 10000
         else:
-            spread = 5
+            spread = 0
 
         if i < self.period:
             df_sliced = df.iloc[:i+1]
@@ -223,14 +187,14 @@ class TradingStrategy:
         # Exit
         if portfolio['position'] == 'long':
             if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
-                portfolio['profit'] = self.calculate_pl(symbol, "long", lot_size, portfolio['entry_price'], close, spread)
-                print(f"long profit: {portfolio['profit']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
+                portfolio['pips'] = (close - portfolio['entry_price']) * 10000 - spread
+                print(f"long geined pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
                 return 'exit_long'
 
         elif portfolio['position'] == 'short':
             if close <= portfolio['take_profit'] or close >= portfolio['stop_loss']:
-                portfolio['profit'] = self.calculate_pl(symbol, "short", lot_size, portfolio['entry_price'], close, spread)
-                print(f"short  profit: {portfolio['profit']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
+                portfolio['pips'] = (portfolio['entry_price'] - close) * 10000 + spread
+                print(f"short geined pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
                 return 'exit_short'
 
         # Entry

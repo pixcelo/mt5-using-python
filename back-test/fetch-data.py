@@ -4,18 +4,36 @@ from datetime import datetime, timezone
 import pytz
 import os
 
+import configparser
+
 try:
+    config = configparser.ConfigParser()
+    config.read('settings.ini')
+
+    mt5_path = config['OANDA']['mt5_path']
+    mt5_login = int(config['OANDA']['mt5_login'])
+    mt5_password = config['OANDA']['mt5_password']
+    mt5_server = config['OANDA']['mt5_server']
+
+    print("===== MT5 Connection Settings =====")
+    print(f"- MT5 Path: {config['OANDA']['mt5_path']}")
+    print(f"- MT5 Login: {config['OANDA']['mt5_login']}") 
+    print(f"- MT5 Password: {'*' * len(config['OANDA']['mt5_password'])}")  
+    print(f"- MT5 Server: {config['OANDA']['mt5_server']}")
+    print("===================================")
+
     # MT5に接続
-    if not mt5.initialize():
+    if not mt5.initialize(path=mt5_path, login=mt5_login, password=mt5_password, server=mt5_server):   
+    # if not mt5.initialize():
         print("initialize() failed, error code =", mt5.last_error())
         quit()
 
     # タイムゾーンをUTCに設定する
-    symbol = "USDSEK"
+    symbol = "EURUSD"
     timeframe = mt5.TIMEFRAME_M1
     timezone = pytz.timezone("Etc/UTC")
-    utc_from = datetime(2022, 8, 1, tzinfo=timezone)
-    utc_to = datetime(2023, 8, 1, hour = 13, tzinfo=timezone)
+    utc_from = datetime(2023, 8, 1, tzinfo=timezone)
+    utc_to = datetime(2023, 9, 15, hour = 13, tzinfo=timezone)
     rates = mt5.copy_rates_range(symbol, timeframe, utc_from, utc_to)
 
     if rates is None:

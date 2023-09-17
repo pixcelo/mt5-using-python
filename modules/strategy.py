@@ -53,9 +53,10 @@ class TradingStrategy:
         horizontal_threshold: 水平線を検出するための閾値
         entry_horizontal_distance: (エントリー条件における水平線の許容距離
     """
-    def __init__(self, allow_long=True, allow_short=False, params=None):
+    def __init__(self, symbol, allow_long=True, allow_short=False, params=None):
         self.last_max_value = 0
         self.last_min_value = 0
+        self.pip_value = 0.01 if 'JPY' in symbol else 0.0001
         self.allow_long = allow_long
         self.allow_short = allow_short
         
@@ -176,10 +177,10 @@ class TradingStrategy:
         
         if 'spread' in df.columns:
             # Convert points to pips
-            spread_pips = df.iloc[i]['spread'] / 10000
+            spread_pips = df.iloc[i]['spread'] * self.pip_value
 
             if spread_pips >= self.base_spread_pips * 2:
-                print(f"Warning: Spread is unusually high at {spread_pips}pips. Skipping trade at index {i}.")
+                print(f"Warning: Spread is unusually high at {df.iloc[i]['spread']}pips. Skipping trade at index {i}.")
                 return None
         else:
             spread_pips = 0
@@ -192,13 +193,13 @@ class TradingStrategy:
         # Exit
         if portfolio['position'] == 'long':
             if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
-                portfolio['pips'] = (close - portfolio['entry_price']) * 10000 - spread_pips
+                portfolio['pips'] = (close - portfolio['entry_price']) * (1 / self.pip_value) - spread_pips
                 print(f"long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_long'
 
         elif portfolio['position'] == 'short':
             if close <= portfolio['take_profit'] or close >= portfolio['stop_loss']:
-                portfolio['pips'] = (portfolio['entry_price'] - close) * 10000 + spread_pips
+                portfolio['pips'] = (portfolio['entry_price'] - close) * (1 / self.pip_value) + spread_pips
                 print(f"short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_short'
 

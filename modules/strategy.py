@@ -45,6 +45,7 @@ class TradingStrategy:
         risk_reward_ratio: リスクリワード（損失に対する利益の比率）
         take_profit_pips: 利確幅
         stop_loss_pips: ストップロス幅
+        base_spread_pips: スプレッドの基準値
         period: トレンドライン・水平線の計算に使うデータ期間
         distance: 極大値・極小値の間にあるローソク足の最低距離
         pivot_count: トレンドラインの計算に使う直近極値の数
@@ -62,12 +63,13 @@ class TradingStrategy:
         self.risk_reward_ratio = 2.0
         self.take_profit_pips = 0.0010  # 10 pips
         self.stop_loss_pips = 0.0010   # 10 pips
+        self.base_spread_pips = 0.0005 # 5 pips
         self.period = 200
         self.distance = 5
         self.pivot_count = 2
         self.horizontal_distance = 10
         self.horizontal_threshold = 4
-        self.entry_horizontal_distance = 0.0005  # 5 pips
+        self.entry_horizontal_distance = 0.0005 # 5 pips
 
         if params:
             for key, value in params.items():
@@ -174,9 +176,13 @@ class TradingStrategy:
         
         if 'spread' in df.columns:
             # Convert points to pips
-            spread = df.iloc[i]['spread'] / 10000
+            spread_pips = df.iloc[i]['spread'] / 10000
+
+            if spread_pips >= self.base_spread_pips * 2:
+                print(f"Warning: Spread is unusually high at {spread_pips}pips. Skipping trade at index {i}.")
+                return None
         else:
-            spread = 0
+            spread_pips = 0
 
         if i < self.period:
             df_sliced = df.iloc[:i+1]
@@ -186,14 +192,14 @@ class TradingStrategy:
         # Exit
         if portfolio['position'] == 'long':
             if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
-                portfolio['pips'] = (close - portfolio['entry_price']) * 10000 - spread
-                print(f"long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
+                portfolio['pips'] = (close - portfolio['entry_price']) * 10000 - spread_pips
+                print(f"long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_long'
 
         elif portfolio['position'] == 'short':
             if close <= portfolio['take_profit'] or close >= portfolio['stop_loss']:
-                portfolio['pips'] = (portfolio['entry_price'] - close) * 10000 + spread
-                print(f"short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread}")
+                portfolio['pips'] = (portfolio['entry_price'] - close) * 10000 + spread_pips
+                print(f"short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_short'
 
         # Entry

@@ -46,7 +46,7 @@ class TradingStrategy:
         take_profit_pips: 利確幅
         stop_loss_pips: ストップロス幅
         base_spread_pips: スプレッドの基準値
-        period: トレンドライン・水平線の計算に使うデータ期間
+        df_sliced_period: トレンドライン・水平線の計算に使うデータ期間
         distance: 極大値・極小値の間にあるローソク足の最低距離
         pivot_count: トレンドラインの計算に使う直近極値の数
         horizontal_distance: 水平線を検出するための最低距離
@@ -61,16 +61,16 @@ class TradingStrategy:
         self.allow_short = allow_short
         
         # Setting values
-        self.risk_reward_ratio = 2.0
+        self.risk_reward_ratio = 1.2
         self.take_profit_pips = 0.0010  # 10 pips
-        self.stop_loss_pips = 0.0010   # 10 pips
+        self.stop_loss_pips = 0.0015   # 15 pips
         self.base_spread_pips = 0.0005 # 5 pips
-        self.period = 200
-        self.distance = 5
-        self.pivot_count = 2
+        self.df_sliced_period = 200
+        self.distance = 15
+        self.pivot_count = 4
         self.horizontal_distance = 10
         self.horizontal_threshold = 4
-        self.entry_horizontal_distance = 0.0005 # 5 pips
+        self.entry_horizontal_distance = 0.0001 # 1 pips
 
         if params:
             for key, value in params.items():
@@ -119,7 +119,7 @@ class TradingStrategy:
 
         # Update pivots
         self.last_max_value = prices_high[pivots_high[-1]]
-        self.last_min_value = prices_low[pivots_low[-1]]    
+        self.last_min_value = prices_low[pivots_low[-1]]
         
         # Use the last pivots-count to calculate the support line
         y = prices[x[-self.pivot_count:]]
@@ -143,35 +143,36 @@ class TradingStrategy:
     
     # The updated check_entry_condition_with_horizontal_line function
     def check_entry_condition_with_horizontal_line(self, df, aim):
+        
         # Detect horizontal lines
-        self.horizontal_lines = self.detect_horizontal_lines(df)
+        horizontal_lines = self.detect_horizontal_lines(df)
         
         # If no horizontal lines are detected, return False
-        if len(self.horizontal_lines) == 0:
+        if len(horizontal_lines) == 0:
             return False
         
         # First, check the existing entry condition
         if not self.check_entry_condition(df, aim):
             return False
-
+        
         # Get the last price
         last_price = df['close'].values[-1]
 
         # Check for nearby horizontal lines based on the aim (long/short)
         if aim == "longEntry":
             # Check if there's a horizontal line within entry_horizontal_distance above the current price
-            for line in self.horizontal_lines:
+            for line in horizontal_lines:
                 if last_price <= line <= last_price + self.entry_horizontal_distance:
                     return True
 
         elif aim == "shortEntry":
             # Check if there's a horizontal line within entry_horizontal_distance below the current price
-            for line in self.horizontal_lines:
+            for line in horizontal_lines:
                 if last_price - self.entry_horizontal_distance <= line <= last_price:
                     return True
 
         return False
-
+        
     def trade_conditions_func(self, df, i, portfolio):
         close = df.iloc[i]['close']
         
@@ -180,51 +181,43 @@ class TradingStrategy:
             spread_pips = df.iloc[i]['spread'] * self.pip_value
 
             if spread_pips >= self.base_spread_pips * 2:
-                print(f"Warning: Spread is unusually high at {df.iloc[i]['spread']}pips. Skipping trade at index {i}.")
+                # print(f"Warning: Spread is unusually high at {df.iloc[i]['spread']}pips. Skipping trade at index {i}.")
                 return None
         else:
             spread_pips = 0
 
-        if i < self.period:
+        if i < self.df_sliced_period:
             df_sliced = df.iloc[:i+1]
         else:
-            df_sliced = df.iloc[i-self.period+1:i+1]
+            df_sliced = df.iloc[i-self.df_sliced_period+1:i+1]
 
         # Exit
         if portfolio['position'] == 'long':
             if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
                 portfolio['pips'] = (close - portfolio['entry_price']) * (1 / self.pip_value) - spread_pips
-                print(f"long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
+                print(f"Long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_long'
 
         elif portfolio['position'] == 'short':
             if close <= portfolio['take_profit'] or close >= portfolio['stop_loss']:
                 portfolio['pips'] = (portfolio['entry_price'] - close) * (1 / self.pip_value) + spread_pips
-                print(f"short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
+                print(f"Short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_short'
 
         # Entry
-        # if self.check_entry_condition(df_sliced, "longEntry"):
-        if self.check_entry_condition_with_horizontal_line(df_sliced, "longEntry"):
-            if self.allow_long:
-                portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
-                portfolio['stop_loss'] = self.last_min_value - self.stop_loss_pips
-                # Fixed pips
-                # portfolio['take_profit'] = close + self.take_profit_pips
-                # portfolio['stop_loss'] = close - self.stop_loss_pips
-                portfolio['entry_price'] = close
-                return 'entry_long' 
-
-        # elif self.check_entry_condition(df_sliced, "shortEntry"):
-        elif self.check_entry_condition_with_horizontal_line(df_sliced, "shortEntry"):
-            if self.allow_short:
-                portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
-                portfolio['stop_loss'] = self.last_max_value + self.stop_loss_pips
-                # Fixed pips
-                # portfolio['take_profit'] = close - self.take_profit_pips
-                # portfolio['stop_loss'] = close + self.stop_loss_pips
-                portfolio['entry_price'] = close
-                return 'entry_short'
-
         else:
-            return None
+            # if self.check_entry_condition(df_sliced, "longEntry"):
+            if self.check_entry_condition_with_horizontal_line(df_sliced, "longEntry"):
+                if self.allow_long:
+                    portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
+                    portfolio['stop_loss'] = self.last_min_value - self.stop_loss_pips
+                    portfolio['entry_price'] = close
+                    return 'entry_long' 
+
+            # elif self.check_entry_condition(df_sliced, "shortEntry"):
+            elif self.check_entry_condition_with_horizontal_line(df_sliced, "shortEntry"):
+                if self.allow_short:
+                    portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
+                    portfolio['stop_loss'] = self.last_max_value + self.stop_loss_pips
+                    portfolio['entry_price'] = close
+                    return 'entry_short'

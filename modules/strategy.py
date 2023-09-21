@@ -98,14 +98,14 @@ class TradingStrategy:
             # if len(pivots_high) < 2 or prices_high[pivots_high[-1]] <= prices_high[pivots_high[-2]]:
             #     return None
             if len(pivots_low) < 2 or prices_low[pivots_low[-1]] <= prices_low[pivots_low[-2]]:
-                return None
+                return None, None, None
             prices = prices_low
             x = pivots_low
 
         # For aim="shortEntry", ensure that both the highs and lows are in a downtrend
         elif aim == "shortEntry":
             if len(pivots_high) < 2 or prices_high[pivots_high[-1]] >= prices_high[pivots_high[-2]]:
-                return None
+                return None, None, None
             # if len(pivots_low) < 2 or prices_low[pivots_low[-1]] >= prices_low[pivots_low[-2]]:
             #     return None
             prices = prices_high
@@ -119,7 +119,12 @@ class TradingStrategy:
         y = prices[x[-self.pivot_count:]]
         slope, intercept = np.polyfit(x[-self.pivot_count:], y, 1)
         trendline = slope * np.arange(len(prices)) + intercept
-        return trendline
+
+        # Determine the start and end indices for the trendline
+        start_idx = x[-self.pivot_count]
+        end_idx = x[-1]
+
+        return trendline, start_idx, end_idx
     
     def determine_trend_direction(self, df, i, period=200):
         """
@@ -180,9 +185,7 @@ class TradingStrategy:
 
         return False
 
-    def check_entry_condition(self, opens, closes, highs, lows, aim):
-        trendline = self.calculate_trend_line(highs, lows, aim)
-
+    def check_entry_condition(self, opens, closes, highs, lows, trendline, aim):
         if trendline is None:
             return False
         
@@ -195,17 +198,13 @@ class TradingStrategy:
         return condition
     
     # The updated check_entry_condition_with_horizontal_line function
-    def check_entry_condition_with_horizontal_line(self, opens, closes, highs, lows, aim):
+    def check_entry_condition_with_horizontal_line(self, closes, highs, lows, aim):
         
         # Detect horizontal lines
         horizontal_lines = self.detect_horizontal_lines(highs, lows)
         
         # If no horizontal lines are detected, return False
         if len(horizontal_lines) == 0:
-            return False
-        
-        # First, check the existing entry condition
-        if not self.check_entry_condition(opens, closes, highs, lows, aim):
             return False
 
         # Check for nearby horizontal lines based on the aim (long/short)
@@ -235,13 +234,13 @@ class TradingStrategy:
         if portfolio['position'] == 'long':
             if close >= portfolio['take_profit'] or close <= portfolio['stop_loss']:
                 portfolio['pips'] = (close - portfolio['entry_price']) * (1 / self.pip_value) - spread_pips
-                print(f"Long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
+                # print(f"Long pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_long'
 
         elif portfolio['position'] == 'short':
             if close <= portfolio['take_profit'] or close >= portfolio['stop_loss']:
                 portfolio['pips'] = (portfolio['entry_price'] - close) * (1 / self.pip_value) + spread_pips
-                print(f"Short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
+                # print(f"Short pips: {portfolio['pips']:.5f}, entry: {portfolio['entry_price']}, close: {close}, spread: {spread_pips}")
                 return 'exit_short'
 
         # Entry
@@ -251,6 +250,8 @@ class TradingStrategy:
             else:
                 df_sliced = df.iloc[i-self.df_sliced_period+1:i+1]
             
+            index_offset = df.index.get_loc(df_sliced.index[0])
+
             opens_sliced = df_sliced['open'].values
             closes_sliced = df_sliced['close'].values
             highs_sliced = df_sliced['high'].values
@@ -259,16 +260,24 @@ class TradingStrategy:
             # trend_direction = self.determine_trend_direction(df, i)
             # print(f'{i}: {trend_direction}')
 
-            if self.check_entry_condition_with_horizontal_line(opens_sliced, closes_sliced, highs_sliced, lows_sliced, "longEntry"):
-                if self.allow_long:
-                    portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
-                    portfolio['stop_loss'] = self.last_min_value - self.stop_loss_pips
-                    portfolio['entry_price'] = close
-                    return 'entry_long'
+            if self.check_entry_condition_with_horizontal_line(closes_sliced, highs_sliced, lows_sliced, "longEntry"):
+                trendline, start_idx, end_idx = self.calculate_trend_line(highs_sliced, lows_sliced, "longEntry")
+                if self.check_entry_condition(opens_sliced, closes_sliced, highs_sliced, lows_sliced, trendline, "longEntry"):
+                    if self.allow_long:
+                        portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
+                        portfolio['stop_loss'] = self.last_min_value - self.stop_loss_pips
+                        portfolio['entry_price'] = close
+                        portfolio['start_idx'] = start_idx + index_offset
+                        portfolio['end_idx'] = end_idx + index_offset
+                        return 'entry_long'
 
-            elif self.check_entry_condition_with_horizontal_line(opens_sliced, closes_sliced, highs_sliced, lows_sliced, "shortEntry"):
-                if self.allow_short:
-                    portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
-                    portfolio['stop_loss'] = self.last_max_value + self.stop_loss_pips
-                    portfolio['entry_price'] = close
-                    return 'entry_short'
+            elif self.check_entry_condition_with_horizontal_line(closes_sliced, highs_sliced, lows_sliced, "shortEntry"):
+                trendline, start_idx, end_idx = self.calculate_trend_line(highs_sliced, lows_sliced, "shortEntry")
+                if self.check_entry_condition(opens_sliced, closes_sliced, highs_sliced, lows_sliced, trendline, "shortEntry"):
+                    if self.allow_short:
+                        portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
+                        portfolio['stop_loss'] = self.last_max_value + self.stop_loss_pips
+                        portfolio['entry_price'] = close
+                        portfolio['start_idx'] = start_idx + index_offset
+                        portfolio['end_idx'] = end_idx + index_offset
+                        return 'entry_short'

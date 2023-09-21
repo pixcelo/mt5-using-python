@@ -76,10 +76,8 @@ class TradingStrategy:
             for key, value in params.items():
                 setattr(self, key, value)
 
-    def detect_horizontal_lines(self, df):
+    def detect_horizontal_lines(self, prices_high, prices_low):
         try:
-            prices_high = df['high'].values
-            prices_low = df['low'].values
             pivots_high, _ = find_peaks(prices_high, distance=self.horizontal_distance)
             pivots_low, _ = find_peaks(-prices_low, distance=self.horizontal_distance)
             
@@ -90,11 +88,7 @@ class TradingStrategy:
         except Exception as e:
             return []
 
-    def calculate_trend_line(self, df, aim="longEntry"):
-        # Use the last N periods for the calculation
-        prices_high = df['high'].values
-        prices_low = df['low'].values
-
+    def calculate_trend_line(self, prices_high, prices_low, aim="longEntry"):
         # Find pivots for highs and lows
         pivots_high, _ = find_peaks(prices_high, distance=self.distance)
         pivots_low, _ = find_peaks(-prices_low, distance=self.distance)
@@ -124,31 +118,70 @@ class TradingStrategy:
         # Use the last pivots-count to calculate the support line
         y = prices[x[-self.pivot_count:]]
         slope, intercept = np.polyfit(x[-self.pivot_count:], y, 1)
-        trendline = slope * np.arange(len(df)) + intercept
+        trendline = slope * np.arange(len(prices)) + intercept
         return trendline
     
-    def check_candle_size(self, df, aim):
-        if len(df) < 2:
+    def determine_trend_direction(self, df, i, period=200):
+        """
+        Determine the trend direction based on Dow Theory.
+        
+        Parameters:
+        - df: DataFrame containing the price data.
+        - period: The period to consider for the trend determination.
+        
+        Returns:
+        - 'up': If both highs and lows are increasing.
+        - 'down': If both highs and lows are decreasing.
+        - 'range': If neither of the above conditions is met.
+        """
+        # Slice the dataframe based on the given period
+        if i < period:
+            df_sliced = df.iloc[:i+1]
+        else:
+            df_sliced = df.iloc[i-period+1:i+1]
+        
+        # Get the high and low prices
+        prices_high = df_sliced['high'].values
+        prices_low = df_sliced['low'].values
+        
+        # Find the peaks for highs and lows
+        pivots_high, _ = find_peaks(prices_high, distance=30)
+        pivots_low, _ = find_peaks(-prices_low, distance=30)
+        
+        # Check the trend direction
+        if len(pivots_high) >= 2 and prices_high[pivots_high[-1]] > prices_high[pivots_high[-2]] and \
+            len(pivots_low) >= 2 and prices_low[pivots_low[-1]] > prices_low[pivots_low[-2]]:
+            return 'up'
+        elif len(pivots_high) >= 2 and prices_high[pivots_high[-1]] < prices_high[pivots_high[-2]] and \
+            len(pivots_low) >= 2 and prices_low[pivots_low[-1]] < prices_low[pivots_low[-2]]:
+            return 'down'
+        else:
+            return 'range'
+    
+    def check_candle_size(self, aim, opens, closes):
+        if len(closes) < 2:
             return False
 
-        current_candle = df.iloc[-1]
-        previous_candle = df.iloc[-2]
+        current_close = closes[-1]
+        current_open = opens[-1]
+        previous_close = closes[-2]
+        previous_open = opens[-2]
         
-        current_body_size = abs(current_candle['close'] - current_candle['open'])
-        previous_body_size = abs(previous_candle['close'] - previous_candle['open'])
-        
+        current_body_size = abs(current_close - current_open)
+        previous_body_size = abs(previous_close - previous_open)
+               
         if aim == "longEntry":
-            if current_candle['close'] > current_candle['open'] and current_body_size > previous_body_size:
+            if current_close > current_open and current_body_size > previous_body_size:
                 return True
         
         elif aim == "shortEntry":
-            if current_candle['close'] < current_candle['open'] and current_body_size > previous_body_size:
+            if current_close < current_open and current_body_size > previous_body_size:
                 return True
 
         return False
 
-    def check_entry_condition(self, df, aim):
-        trendline = self.calculate_trend_line(df, aim)
+    def check_entry_condition(self, opens, closes, highs, lows, aim):
+        trendline = self.calculate_trend_line(highs, lows, aim)
 
         if trendline is None:
             return False
@@ -156,60 +189,47 @@ class TradingStrategy:
         trendline_value = trendline[-1]
 
         if aim == "longEntry":
-            condition = df['low'].iloc[-2] <= trendline_value and df['close'].iloc[-1] > trendline_value and self.check_candle_size(df, aim)
+            condition = lows[-2] <= trendline_value and closes[-1] > trendline_value and self.check_candle_size(aim, opens, closes)
         else:
-            condition = df['high'].iloc[-2] >= trendline_value and df['close'].iloc[-1] < trendline_value and self.check_candle_size(df, aim)
+            condition = highs[-2] >= trendline_value and closes[-1] < trendline_value and self.check_candle_size(aim, opens, closes)
         return condition
     
     # The updated check_entry_condition_with_horizontal_line function
-    def check_entry_condition_with_horizontal_line(self, df, aim):
+    def check_entry_condition_with_horizontal_line(self, opens, closes, highs, lows, aim):
         
         # Detect horizontal lines
-        horizontal_lines = self.detect_horizontal_lines(df)
+        horizontal_lines = self.detect_horizontal_lines(highs, lows)
         
         # If no horizontal lines are detected, return False
         if len(horizontal_lines) == 0:
             return False
         
         # First, check the existing entry condition
-        if not self.check_entry_condition(df, aim):
+        if not self.check_entry_condition(opens, closes, highs, lows, aim):
             return False
-        
-        # Get the last price
-        last_price = df['close'].values[-1]
 
         # Check for nearby horizontal lines based on the aim (long/short)
         if aim == "longEntry":
             # Check if there's a horizontal line within entry_horizontal_distance above the current price
             for line in horizontal_lines:
-                if last_price <= line <= last_price + self.entry_horizontal_distance:
+                if closes[-1] <= line <= closes[-1] + self.entry_horizontal_distance:
                     return True
 
         elif aim == "shortEntry":
             # Check if there's a horizontal line within entry_horizontal_distance below the current price
             for line in horizontal_lines:
-                if last_price - self.entry_horizontal_distance <= line <= last_price:
+                if closes[-1] - self.entry_horizontal_distance <= line <= closes[-1]:
                     return True
 
         return False
         
-    def trade_conditions_func(self, df, i, portfolio):
-        close = df.iloc[i]['close']
-        
-        if 'spread' in df.columns:
-            # Convert points to pips
-            spread_pips = df.iloc[i]['spread'] * self.pip_value
+    def trade_conditions_func(self, df, i, portfolio, closes, spreads):
+        close = closes[i]
+        spread_pips = spreads[i] * self.pip_value
 
-            if spread_pips >= self.base_spread_pips * 2:
-                # print(f"Warning: Spread is unusually high at {df.iloc[i]['spread']}pips. Skipping trade at index {i}.")
-                return None
-        else:
-            spread_pips = 0
-
-        if i < self.df_sliced_period:
-            df_sliced = df.iloc[:i+1]
-        else:
-            df_sliced = df.iloc[i-self.df_sliced_period+1:i+1]
+        if self.base_spread_pips > 0 and spread_pips >= self.base_spread_pips * 2:
+            # print(f"Warning: Spread is unusually high at {df.iloc[i]['spread']}pips. Skipping trade at index {i}.")
+            return None
 
         # Exit
         if portfolio['position'] == 'long':
@@ -226,22 +246,29 @@ class TradingStrategy:
 
         # Entry
         else:
-            # if self.check_entry_condition(df_sliced, "longEntry"):
-            if self.check_entry_condition_with_horizontal_line(df_sliced, "longEntry"):
+            if i < self.df_sliced_period:
+                df_sliced = df.iloc[:i+1]
+            else:
+                df_sliced = df.iloc[i-self.df_sliced_period+1:i+1]
+            
+            opens_sliced = df_sliced['open'].values
+            closes_sliced = df_sliced['close'].values
+            highs_sliced = df_sliced['high'].values
+            lows_sliced = df_sliced['low'].values
+
+            # trend_direction = self.determine_trend_direction(df, i)
+            # print(f'{i}: {trend_direction}')
+
+            if self.check_entry_condition_with_horizontal_line(opens_sliced, closes_sliced, highs_sliced, lows_sliced, "longEntry"):
                 if self.allow_long:
                     portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
-                    # portfolio['take_profit'] = close + self.take_profit_pips
-                    # portfolio['take_profit'] = self.last_max_value + self.take_profit_pips
                     portfolio['stop_loss'] = self.last_min_value - self.stop_loss_pips
                     portfolio['entry_price'] = close
                     return 'entry_long'
-                
-            # elif self.check_entry_condition(df_sliced, "shortEntry"):
-            elif self.check_entry_condition_with_horizontal_line(df_sliced, "shortEntry"):
+
+            elif self.check_entry_condition_with_horizontal_line(opens_sliced, closes_sliced, highs_sliced, lows_sliced, "shortEntry"):
                 if self.allow_short:
                     portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
-                    # portfolio['take_profit'] = close - self.take_profit_pips
-                    # portfolio['take_profit'] = self.last_min_value - self.take_profit_pips
                     portfolio['stop_loss'] = self.last_max_value + self.stop_loss_pips
                     portfolio['entry_price'] = close
                     return 'entry_short'

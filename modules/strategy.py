@@ -10,6 +10,7 @@ class TradingStrategy:
         base_spread_pips: スプレッドの基準値
         df_sliced_period: 計算に使うデータ期間の範囲
         distance: 極大値・極小値の間にあるローソク足の最低距離
+        candle_size_pips: 大陽線・大陰線の基準とする最低値幅
     """
     def __init__(self, params=None):
         # Setting values
@@ -18,7 +19,8 @@ class TradingStrategy:
         self.stop_loss_pips = 0.10   # 10 pips
         self.base_spread_pips = 0.03 # 3 pips
         self.df_sliced_period = 500
-        self.distance = 7
+        self.distance = 7,
+        self.candle_size_pips: 0.05
 
         if params:
             for key, value in params.items():
@@ -116,7 +118,7 @@ class TradingStrategy:
             self.conditions['highest_price'] = highs[highest_high_point]
             return lows[corresponding_low_point]
 
-    def is_long_entry_condition(self, opens, highs, lows, closes, use_ema_filter=False):
+    def is_long_entry_condition(self, opens, highs, lows, closes, use_ema_filter=True):
         trend_reversal_line = None
 
         if self.conditions['last_min_value'] == 0 and self.conditions['last_max_value'] == 0:
@@ -142,12 +144,13 @@ class TradingStrategy:
         
         if (closes[-1] > self.conditions['trend_reversal_line'] and
             candle_body > avg_candle_body_last_20 and
-            candle_wick <= (0.2 * candle_body)):
+            candle_wick <= (0.2 * candle_body) and
+            candle_body >= self.candle_size_pips):
             return True
 
         return False
     
-    def is_short_entry_condition(self, opens, highs, lows, closes, use_ema_filter=False):
+    def is_short_entry_condition(self, opens, highs, lows, closes, use_ema_filter=True):
         trend_reversal_line = None
 
         if self.conditions['last_min_value'] == 0 and self.conditions['last_max_value'] == 0:
@@ -173,7 +176,8 @@ class TradingStrategy:
         
         if (closes[-1] < self.conditions['trend_reversal_line_short'] and
             candle_body > avg_candle_body_last_20 and
-            candle_wick <= (0.2 * candle_body)):
+            candle_wick <= (0.2 * candle_body) and
+            candle_body >= self.candle_size_pips):
             return True
 
         return False
@@ -236,11 +240,9 @@ class TradingStrategy:
             lows_sliced = df_sliced['low'].values
             
             if self.is_long_entry_condition(opens_sliced, highs_sliced, lows_sliced, closes_sliced, True):
+
                 portfolio['take_profit'] = close + (self.stop_loss_pips * self.risk_reward_ratio)
                 portfolio['stop_loss'] = self.conditions['last_min_value'] - self.stop_loss_pips
-                # portfolio['stop_loss'] = close - self.stop_loss_pips
-                if abs(close - portfolio['stop_loss']) > 0.20:
-                    portfolio['stop_loss'] = close - 0.20
                 portfolio['entry_price'] = close
                 portfolio['reversal_price'] = self.conditions['trend_reversal_line']
                 portfolio['position'] = 'long'
@@ -259,11 +261,10 @@ class TradingStrategy:
                 return action
             
             elif self.is_short_entry_condition(opens_sliced, highs_sliced, lows_sliced, closes_sliced, True):
+
+
                 portfolio['take_profit'] = close - (self.stop_loss_pips * self.risk_reward_ratio)
                 portfolio['stop_loss'] = self.conditions['last_max_value'] + self.stop_loss_pips
-                # portfolio['stop_loss'] = close + self.stop_loss_pips 
-                if abs(close - portfolio['stop_loss']) > 0.20:
-                    portfolio['stop_loss'] = close + 0.20
                 portfolio['entry_price'] = close
                 portfolio['reversal_price'] = self.conditions['trend_reversal_line_short']
                 portfolio['position'] = 'short'

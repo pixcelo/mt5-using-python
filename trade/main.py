@@ -41,7 +41,15 @@ def main_process(polling_interval=60):
         quit()
 
     # ポートフォリオを初期化
-    portfolio = {'position': None, 'entry_price': None}
+    portfolio = {
+        'position': None,  # "long" or "short"
+        'entry_price': None,
+        'entry_point': 0,
+        'trailing_stop': 0,
+        'take_profit': None,
+        'stop_loss': None,
+        'profit': 0
+    }
 
     try:
         while True:
@@ -60,22 +68,38 @@ def main_process(polling_interval=60):
             signal = trading.trade_conditions(df, len(df)-1, portfolio)
             print(f'signal: {signal}')
 
-            # order parameters
-            order_type = mt5.ORDER_TYPE_BUY
-            point = mt5.symbol_info(params['symbol']).point
-            price = mt5.symbol_info_tick(params['symbol']).ask
-            stop_loss = price - 100 * point
-            take_profit = price + 100 * point
+            if portfolio['position'] == 'long'and signal == 'exit_long': 
+                # trading.close_position(position["id"])
+                portfolio = trading.init_portfolio()
 
-            if signal == 'entry_long' and position is None:
-                order_type = mt5.ORDER_TYPE_BUY
-                trading.place_order(params['symbol'], order_type, lot, price, stop_loss, take_profit)
-                portfolio['position'] = 'long'
-            elif signal == 'exit_long' and portfolio['position'] == 'long':
-                order_type = mt5.ORDER_TYPE_SELL
-                trading.close_position(position["id"])
-                portfolio['position'] = None
-                portfolio['entry_price'] = None
+            elif portfolio['position'] == 'short' and signal == 'exit_short':
+                # trading.close_position(position["id"])
+                portfolio = trading.init_portfolio()
+
+            else:
+                if signal == 'entry_long':
+                    result = trading.place_order(
+                                params['symbol'], 
+                                mt5.ORDER_TYPE_BUY,
+                                lot,
+                                mt5.symbol_info_tick(params['symbol']).ask,
+                                portfolio['stop_loss'],
+                                portfolio['take_profit'])
+                    
+                    if result.retcode != mt5.TRADE_RETCODE_DONE:
+                        print("order_send failed, retcode={}".format(result.retcode))
+
+                elif signal == 'entry_short':
+                    result = trading.place_order(
+                                params['symbol'], 
+                                mt5.ORDER_TYPE_SELL,
+                                lot,
+                                mt5.symbol_info_tick(params['symbol']).bid,
+                                portfolio['stop_loss'],
+                                portfolio['take_profit'])
+                    
+                    if result.retcode != mt5.TRADE_RETCODE_DONE:
+                        print("order_send failed, retcode={}".format(result.retcode))
 
             time.sleep(polling_interval)
 

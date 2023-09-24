@@ -1,21 +1,22 @@
 import sys
-import os
-sys.path.append(os.getcwd())
+sys.path.append('d:\\dev\\mt5-python')
 
 from modules import TradingStrategy
 import MetaTrader5 as mt5
-import numpy as np
 
 class Trading:
-    def __init__(self, symbol, lot_size=1, slippage=3, params=None):
-        self.symbol = symbol
+    def __init__(self, lot_size=0.01, slippage=3, params=None):
+        self.symbol = params['symbol']
         self.lot_size = lot_size
         self.slippage = slippage
-        self.strategy = TradingStrategy(symbol=symbol, params=params)
+        self.strategy = TradingStrategy(params=params)
+        self.magic_number = 19850001
 
         self.portfolio = {
-            'position': None,  # 'long' or 'short'
+            'position': None,  # "long" or "short"
             'entry_price': None,
+            'entry_point': 0,
+            'trailing_stop': 0,
             'take_profit': None,
             'stop_loss': None,
             'profit': 0
@@ -33,7 +34,7 @@ class Trading:
                 "sl": stop_loss,
                 "tp": take_profit,
                 "deviation": self.slippage, # point単位
-                "magic": 234000,
+                "magic": self.magic_number,
                 "comment": "python script open",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
@@ -130,6 +131,18 @@ class Trading:
                 }
 
         return None
+    
+    # Initialize portfolio state
+    def init_portfolio(self):
+        return {
+            'position': None,  # "long" or "short"
+            'entry_price': None,
+            'entry_point': 0,
+            'trailing_stop': 0,
+            'take_profit': None,
+            'stop_loss': None,
+            'profit': 0
+        }
     
     def trade_conditions(self, df, i, portfolio):
         closes = df['close'].values

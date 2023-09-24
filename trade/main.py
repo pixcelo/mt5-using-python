@@ -9,14 +9,22 @@ def main_process(polling_interval=60):
 
     settings_reversal_usdjpy = { 
         'symbol': 'USDJPY',
-        'risk_reward_ratio': 1.2, # 1.0
+        'risk_reward_ratio': 1.0, # 1.0
         'stop_loss_pips': 0.10, # 0.10
         'base_spread_pips': 0.03, # 0.03
         'df_sliced_period': 500, # 300~500
         'distance': 7, # 5~7
+        'candle_size_pips': 0.05, # 0.04~0.05
     }
 
     params = settings_reversal_usdjpy
+
+    print("===== Currency Settings =====")
+    for key, value in params.items():
+        print(f"- {key.replace('_', ' ').capitalize()}: {value}")
+    print("=============================")
+    print()
+
     trading = Trading(params=params)
 
     # MT5に接続
@@ -62,11 +70,11 @@ def main_process(polling_interval=60):
             df = pd.DataFrame(rates)
             df['time'] = pd.to_datetime(df['time'], unit='s')
 
-            position = trading.get_position()
+            # position = trading.get_position()
 
             lot = 0.01 # 1ロット=100,000通貨　(最小取引数量 10,000通貨)
             signal = trading.trade_conditions(df, len(df)-1, portfolio)
-            print(f'signal: {signal}')
+            print(f'{params["symbol"]} signal: {signal}')
 
             if portfolio['position'] == 'long'and signal == 'exit_long': 
                 # trading.close_position(position["id"])

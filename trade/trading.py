@@ -1,16 +1,17 @@
 import sys
-sys.path.append('d:\\dev\\mt5-python')
+import os
+sys.path.append(os.getcwd())
 
-from modules import ResampleData, TradingStrategy
+from modules import TradingStrategy
 import MetaTrader5 as mt5
 import numpy as np
 
 class Trading:
-    def __init__(self, symbol, lot_size=1, slippage=3):
+    def __init__(self, symbol, lot_size=1, slippage=3, params=None):
         self.symbol = symbol
         self.lot_size = lot_size
         self.slippage = slippage
-        self.strategy = TradingStrategy(allow_short=True)
+        self.strategy = TradingStrategy(symbol=symbol, params=params)
 
         self.portfolio = {
             'position': None,  # 'long' or 'short'
@@ -19,12 +20,6 @@ class Trading:
             'stop_loss': None,
             'profit': 0
         }
-    
-    def load_data(self, df):
-        resampler_df = ResampleData(df)
-        df = resampler_df.merge_data()
-        df = self.strategy.prepare_data(df)
-        return df
 
     def place_order(self, symbol, order_type, volume, price, stop_loss, take_profit):
         try:
@@ -136,5 +131,7 @@ class Trading:
 
         return None
     
-    def trade_conditions(self, symbol, df, i, portfolio, lot_size):
-        return self.strategy.trade_conditions_func(symbol, df, i, portfolio, lot_size)
+    def trade_conditions(self, df, i, portfolio):
+        closes = df['close'].values
+        spreads = df['spread'].values
+        return self.strategy.trade_logic_trend_reversal(df, i, portfolio, closes, spreads)
